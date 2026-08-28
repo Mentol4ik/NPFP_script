@@ -1,0 +1,894 @@
+WITH
+act_date AS (
+	SELECT
+		2026::int2 AS "year"
+		,'2026-07-01'::date AS actuality_date_1
+		,'2026-07-01'::date AS actuality_date_2
+		,'2026-01-01'::date AS state_date_1
+		,'2026-07-01'::date AS state_date_2
+),
+fs_1_t1 AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_1'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденных Федеральным законом № 540-ФЗ, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+			  	SELECT
+			  		sum(col_20) / 1000 AS "value",
+			  		col_10 AS npfp_code
+			  	FROM eb_bp.reestr_sbr AS sbr, act_date AS ad
+			  	WHERE state_date = ad.state_date_1
+			  		AND col_19 = '3'
+			  		AND col_10 ~ '^[А-ЯY].*$'
+			  		AND sbr."year"::int2 = ad."year"
+			  	GROUP BY npfp_code
+			  ) rs USING(npfp_code),
+		act_date AS ad
+	  WHERE actuality_date = ad.actuality_date_1
+	  	AND npfp.npfp_code NOT LIKE '%\_%'
+	  	AND npfp.npfp_parent_code notnull
+	  	and npfp.id_data_version = 'oper'
+),
+fs_1_t2 AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_1'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденных Федеральным законом № 540-ФЗ, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					sum(col_20) / 1000 AS "value",
+					LEFT(col_10, 1) AS npfp_code
+				FROM eb_bp.reestr_sbr AS sbr, act_date AS ad
+				WHERE
+					state_date = ad.state_date_1
+					AND col_19 = '3'
+					AND col_10 ~ '^[А-ЯY].*$'
+					AND sbr."year"::int2 = ad."year"
+				GROUP BY npfp_code
+			) rs USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code isnull
+		and npfp.id_data_version = 'oper'
+),
+fs_2_t1 AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_2'::text AS fact_code,
+	    'Выделено средств по СБР , млн. руб.'::text AS fact_name,
+	     COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					sum(col_20) / 1000 AS "value",
+					col_10 AS npfp_code 
+				FROM eb_bp.reestr_sbr AS sbr, act_date AS ad
+				WHERE
+					state_date = ad.state_date_2
+					AND actuality_date = '2026-07-13'
+					AND col_19 = '3'
+					AND col_10 ~ '^[А-ЯY].*$'
+					and sbr."year" = '2026' -- новое условие
+				GROUP BY npfp_code
+			) rs USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code notnull
+		and npfp.id_data_version = 'oper'
+),
+fs_2_t2 AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_2'::text AS fact_code,
+	    'Выделено средств по СБР , млн. руб.'::text AS fact_name,
+	     COALESCE("value", 0) AS "value"
+	FROM 
+		public.nsi_npfp npfp
+			LEFT JOIN (
+				SELECT
+					sum(col_20) / 1000 AS "value",
+					LEFT(col_10, 1) AS npfp_code 
+				FROM eb_bp.reestr_sbr AS sbr, act_date AS ad
+				WHERE
+					state_date = ad.state_date_2
+					AND actuality_date = '2026-07-13'
+					AND col_19 = '3'
+					AND col_10 ~ '^[А-ЯY].*$'
+					and sbr."year" = '2026' -- новое условие
+				GROUP BY npfp_code
+			) rs USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code isnull
+		and npfp.id_data_version = 'oper'
+),
+fs_3 AS (
+	SELECT
+		fs_2.npfp_code,
+		'fs_fb'::text AS fin_source_id,
+		'fs_3'::text AS fact_code,
+		'Объем изменений расходов, утвержденный сводной бюджетной росписью с учетом изменений от расходов, утвержденных Федеральным законом № 540-ФЗ, млн. руб.'::text AS fact_name,
+		fs_2.value - fs_1.value AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_2_t1
+		UNION
+		SELECT npfp_code, "value" FROM fs_2_t2
+	) AS fs_2
+	join(
+		SELECT npfp_code, "value" FROM fs_1_t1
+		UNION
+		SELECT npfp_code, "value" FROM fs_1_t2
+	) AS fs_1 USING(npfp_code)
+),
+fs_4 AS (
+	SELECT
+		fs_2.npfp_code,
+		'fs_fb'::text AS fin_source_id,
+		'fs_4'::text AS fact_code,
+		'Процент изменений расходов, утвержденных сводной бюджетной росписью с учетом изменений от расходов, утвержденных Федеральным законом № 540-ФЗ,%'::text AS fact_name,
+		CASE 
+  			WHEN fs_1.value = 0 THEN NULL
+  			ELSE ((fs_2.value / fs_1.value) * 100) - 100
+		END AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_2_t1
+		UNION
+		SELECT npfp_code, "value" FROM fs_2_t2
+	) AS fs_2
+	join(
+		SELECT npfp_code, "value" FROM fs_1_t1
+		UNION
+		SELECT npfp_code, "value" FROM fs_1_t2
+	) AS fs_1 USING(npfp_code)
+),
+fs_5_t1 AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_5'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденный паспортами федеральных проектов, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					rft."ProjectId",
+					rft."Value2026" / 1000 AS "value",
+					rbc.npfp_code
+				FROM
+					eb.rpp_fs_tpbfs_18 AS rft
+						JOIN (
+							SELECT
+								"ProjectId",
+								actuality_date,
+								code AS npfp_code
+							FROM eb.rpp_bc_18 AS bc, act_date AS ad
+							WHERE
+								code ~ '^[А-ЯY]'
+								AND actuality_date = ad.actuality_date_2
+						) AS rbc USING("ProjectId", actuality_date),
+					act_date AS ad
+				WHERE
+					rft.actuality_date = ad.actuality_date_2
+					AND "SourceName" = 'Федеральный бюджет, всего'
+			) AS rft USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code notnull
+		and npfp.id_data_version = 'oper'
+),
+fs_5_t2 AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_5'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденный паспортами федеральных проектов, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					rft."ProjectId",
+					rft."Value2026" / 1000 AS "value",
+					rbc.npfp_code
+				FROM
+					eb.rpp_fs_tpbfs_18 AS rft
+						JOIN (
+							SELECT
+								"ProjectId",
+								actuality_date,
+								code AS npfp_code
+							FROM eb.rpp_bc_18 AS bc, act_date AS ad
+							WHERE
+								code ~ '^[А-ЯY]'
+								AND actuality_date = ad.actuality_date_2
+						) AS rbc USING("ProjectId", actuality_date),
+					act_date AS ad
+					WHERE
+						rft.actuality_date = ad.actuality_date_2
+						AND "fin_source_code" = '10'
+			) AS rft USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code isnull
+		and npfp.id_data_version = 'oper'
+),
+fs_6 AS (
+	SELECT
+		fs_5.npfp_code,
+		'fs_fb'::text AS fin_source_id,
+		'fs_6'::text AS fact_code,
+		'Отклонение объема расходов федерального бюджета, утвержденных паспортами федеральных проектов от утвержденных сводной бюджетной росписью с учетом изменений, млн. руб.'::text AS fact_name,
+		fs_5.value - fs_2.value AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_5_t1
+		UNION
+		SELECT npfp_code, "value" FROM fs_5_t2
+	) AS fs_5
+	join(
+		SELECT npfp_code, "value" FROM fs_2_t1
+		UNION
+		SELECT npfp_code, "value" FROM fs_2_t2
+	) AS fs_2 USING(npfp_code)
+),
+fs_7_t1 AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_7'::text AS fact_code,
+	    'Структура, в % к сводной бюджетной росписи с учетом изменений'::text AS fact_name,
+	    100 AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+		WHERE
+		actuality_date = '2026-07-01' --понять бы что за дата
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code isnull
+		and npfp.id_data_version = 'oper'
+),
+/*fs_7_t2 AS (
+	SELECT DISTINCT
+	    fs_2.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_7'::text AS fact_code,
+	    'Структура, в % к сводной бюджетной росписи с учетом изменений'::text AS fact_name,
+	    (fs_2.value/fs_2_np.value)*100 AS "value"
+	FROM
+		(
+		SELECT npfp_code, "value" FROM fs_2_t1
+	) AS fs_2
+	join(
+		SELECT npfp_code, "value" FROM fs_2_t2
+	) AS fs_2_np USING(npfp_code)
+),*/
+fs_8_t1 AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_8'::text AS fact_code,
+	    'Исполнено средств, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					sum(col_12) / 1000 AS "value", -- изменен на col_12 (была col_14)
+					substring(kbk_code, 11, 2) AS npfp_code
+				FROM eb_bp.f_0503811 AS main, act_date AS ad
+				WHERE
+					actuality_date = '2026-07-13'
+					AND substring(kbk_code, 11, 2) ~ '^[А-ЯY]'
+				GROUP BY substring(kbk_code, 11, 2)
+			) ofbe USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code notnull
+		and npfp.id_data_version = 'oper'
+),
+fs_8_t2 AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_fb'::text AS fin_source_id,
+	    'fs_8'::text AS fact_code,
+	    'Исполнено средств, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					sum(col_12) / 1000 AS "value",-- изменен на col_12 (была col_14)
+					substring(kbk_code, 11, 1) AS npfp_code
+				from eb_bp.f_0503811 AS main, act_date AS ad
+				WHERE
+					actuality_date = '2026-07-13'
+					and budget_years = '2026-2028'
+					AND substring(kbk_code, 11, 1) ~ '^[А-ЯY]'
+				GROUP BY substring(kbk_code, 11, 1)
+			) ofbe USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code isnull
+		and npfp.id_data_version = 'oper'
+),
+fs_9 AS (
+	SELECT
+		fs_8.npfp_code,
+		'fs_fb'::text AS fin_source_id,
+		'fs_9'::text AS fact_code,
+		'Процент исполнения бюджета, в % к сводной бюджетной росписи'::text AS fact_name,
+		CASE 
+  WHEN fs_2.value = 0 THEN NULL
+  ELSE (fs_8.value / fs_2.value) * 100
+END AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_8_t1
+		UNION
+		SELECT npfp_code, "value" FROM fs_8_t2
+	) AS fs_8
+	join(
+		SELECT npfp_code, "value" FROM fs_2_t1
+		UNION
+		SELECT npfp_code, "value" FROM fs_2_t2
+	) AS fs_2 USING(npfp_code)
+),
+fs_1_t1_mbt AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_mbt'::text AS fin_source_id,
+	    'fs_1'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденных Федеральным законом № 540-ФЗ, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+			  	SELECT
+			  		sum(col_20) / 1000 AS "value",
+			  		col_10 AS npfp_code
+			  	FROM eb_bp.reestr_sbr AS sbr, act_date AS ad
+			  	WHERE state_date = ad.state_date_1
+			  		AND col_19 = '2'
+					AND col_14 in ('500', '560', '570')
+			  		AND col_10 ~ '^[А-ЯY].*$'
+			  		AND sbr."year"::int2 = ad."year"
+			  	GROUP BY npfp_code
+			  ) rs USING(npfp_code),
+		act_date AS ad
+	  WHERE actuality_date = ad.actuality_date_1
+	  	AND npfp.npfp_code NOT LIKE '%\_%'
+	  	AND npfp.npfp_parent_code notnull
+	  	and npfp.id_data_version = 'oper'
+),
+fs_1_t2_mbt AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_mbt'::text AS fin_source_id,
+	    'fs_1'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденных Федеральным законом № 540-ФЗ, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					sum(col_20) / 1000 AS "value",
+					LEFT(col_10, 1) AS npfp_code
+				FROM eb_bp.reestr_sbr AS sbr, act_date AS ad
+				WHERE
+					state_date = ad.state_date_1
+					AND col_19 = '2'
+					AND col_14 in ('500', '560', '570')
+					AND col_10 ~ '^[А-ЯY].*$'
+					AND sbr."year"::int2 = ad."year"
+				GROUP BY npfp_code
+			) rs USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code isnull
+		and npfp.id_data_version = 'oper'
+),
+fs_2_t1_mbt AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_mbt'::text AS fin_source_id,
+	    'fs_2'::text AS fact_code,
+	    'Выделено средств по СБР , млн. руб.'::text AS fact_name,
+	     COALESCE ("value_1" - "value_2" - "value_3", 0) as "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					SUM(CASE WHEN sbr.col_14 = '500' and sbr.col_19 = '2' THEN sbr.col_20 ELSE 0 END) / 1000 AS "value_1",
+                    SUM(CASE WHEN sbr.col_14 = '560' and sbr.col_19 = '4' THEN sbr.col_20 ELSE 0 END) / 1000 AS "value_2",
+                    SUM(CASE WHEN sbr.col_14 = '570' and sbr.col_19 = '4' THEN sbr.col_20 ELSE 0 END) / 1000 AS "value_3", 
+					col_10 AS npfp_code 
+				FROM eb_bp.reestr_sbr AS sbr, act_date AS ad
+				WHERE
+					state_date = ad.state_date_2
+					AND actuality_date = '2026-07-13'
+					AND col_10 ~ '^[А-ЯY].*$'
+					and sbr."year" = '2026' -- новое условие
+				GROUP BY npfp_code
+			) rs USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code notnull
+		and npfp.id_data_version = 'oper'
+),
+fs_2_t2_mbt AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_mbt'::text AS fin_source_id,
+	    'fs_2'::text AS fact_code,
+	    'Выделено средств по СБР , млн. руб.'::text AS fact_name,
+	     COALESCE ("value_1" - "value_2" - "value_3", 0) as "value"
+	FROM 
+		public.nsi_npfp npfp
+			LEFT JOIN (
+				SELECT
+					SUM(CASE WHEN sbr.col_14 = '500' and sbr.col_19 = '2' THEN sbr.col_20 ELSE 0 END) / 1000 AS "value_1",
+                    SUM(CASE WHEN sbr.col_14 = '560' and sbr.col_19 = '4' THEN sbr.col_20 ELSE 0 END) / 1000 AS "value_2",
+                    SUM(CASE WHEN sbr.col_14 = '570' and sbr.col_19 = '4' THEN sbr.col_20 ELSE 0 END) / 1000 AS "value_3", 					
+					LEFT(col_10, 1) AS npfp_code 
+				FROM eb_bp.reestr_sbr AS sbr, act_date AS ad
+				WHERE
+					state_date = ad.state_date_2
+					AND actuality_date = '2026-07-13'
+					AND col_10 ~ '^[А-ЯY].*$'
+					and sbr."year" = '2026' -- новое условие
+				GROUP BY npfp_code
+			) rs USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code is null
+		and npfp.id_data_version = 'oper'
+),
+fs_3_mbt AS (
+	SELECT
+		fs_2.npfp_code,
+		'fs_mbt'::text AS fin_source_id,
+		'fs_3'::text AS fact_code,
+		'Объем изменений расходов, утвержденный сводной бюджетной росписью с учетом изменений от расходов, утвержденных Федеральным законом № 540-ФЗ, млн. руб.'::text AS fact_name,
+		fs_2.value - fs_1.value AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_2_t1_mbt
+		UNION
+		SELECT npfp_code, "value" FROM fs_2_t2_mbt
+	) AS fs_2
+	join(
+		SELECT npfp_code, "value" FROM fs_1_t1_mbt
+		UNION
+		SELECT npfp_code, "value" FROM fs_1_t2_mbt
+	) AS fs_1 USING(npfp_code)
+),
+fs_4_mbt AS (
+	SELECT
+		fs_2.npfp_code,
+		'fs_mbt'::text AS fin_source_id,
+		'fs_4'::text AS fact_code,
+		'Процент изменений расходов, утвержденных сводной бюджетной росписью с учетом изменений от расходов, утвержденных Федеральным законом № 540-ФЗ,%'::text AS fact_name,
+		CASE 
+  			WHEN fs_1.value = 0 THEN NULL
+  			ELSE ((fs_2.value / fs_1.value) * 100) - 100
+		END AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_2_t1_mbt
+		UNION
+		SELECT npfp_code, "value" FROM fs_2_t2_mbt
+	) AS fs_2
+	join(
+		SELECT npfp_code, "value" FROM fs_1_t1_mbt
+		UNION
+		SELECT npfp_code, "value" FROM fs_1_t2_mbt
+	) AS fs_1 USING(npfp_code)
+),
+fs_8_t1_mbt AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_mbt'::text AS fin_source_id,
+	    'fs_8'::text AS fact_code,
+	    'Исполнено средств, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN ( 
+				SELECT
+					sum(col_12) / 1000 AS "value", -- было col_14
+					substring(kbk_code, 11, 2) AS npfp_code
+				FROM eb_bp.f_0503811 AS main, act_date AS ad
+				WHERE
+					actuality_date = '2026-07-13'
+					AND substring(kbk_code, 11, 2) ~ '^[А-ЯY]'
+					AND substring(kbk_code, 18, 3) in ('511','512','521','522','523','524','530','540')
+				GROUP BY substring(kbk_code, 11, 2)
+			) ofbe USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code notnull
+		and npfp.id_data_version = 'oper'
+),
+fs_8_t2_mbt AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_mbt'::text AS fin_source_id,
+	    'fs_8'::text AS fact_code,
+	    'Исполнено средств, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					sum(col_12) / 1000 AS "value",-- было col_14
+					substring(kbk_code, 11, 1) AS npfp_code
+				from eb_bp.f_0503811 AS main, act_date AS ad
+				WHERE
+					actuality_date = '2026-07-13'
+					AND substring(kbk_code, 11, 1) ~ '^[А-ЯY]'
+					AND substring(kbk_code, 18, 3) in ('511','512','521','522','523','524','530','540')
+				GROUP BY substring(kbk_code, 11, 1)
+			) ofbe USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code isnull
+		and npfp.id_data_version = 'oper'
+),
+fs_9_mbt AS (
+	SELECT
+		fs_8.npfp_code,
+		'fs_mbt'::text AS fin_source_id,
+		'fs_9'::text AS fact_code,
+		'Процент исполнения бюджета, в % к сводной бюджетной росписи'::text AS fact_name,
+		CASE 
+  WHEN fs_2.value = 0 THEN NULL
+  ELSE (fs_8.value / fs_2.value) * 100
+END AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_8_t1_mbt
+		UNION
+		SELECT npfp_code, "value" FROM fs_8_t2_mbt
+	) AS fs_8
+	join(
+		SELECT npfp_code, "value" FROM fs_2_t1_mbt
+		UNION
+		SELECT npfp_code, "value" FROM fs_2_t2_mbt
+	) AS fs_2 USING(npfp_code)
+),
+fs_14_t1_vni AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_vni'::text AS fin_source_id,
+	    'fs_14'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденный паспортами федеральных проектов на начало года (01.01.202X), млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp LEFT JOIN (
+	select rft."ProjectId", 
+  rft."Value2026"/1000 as "value", 
+  rbc.code as npfp_code
+from eb.rpp_fs_tpbfs_18 rft
+left join eb.rpp_bc_18 rbc on rbc."ProjectId" = rft."ProjectId" and rft.actuality_date = rbc.actuality_date
+where rft.actuality_date IN ('2026-01-01')
+AND ("fin_source_code" IN ('40')) and rbc.code ~ '^[А-Я Y]') rft on npfp.npfp_code = rft.npfp_code	
+	  WHERE actuality_date = '2026-01-01'
+	  	AND npfp.npfp_code NOT LIKE '%\_%'
+	  	AND npfp.npfp_parent_code notnull
+	  	and npfp.id_data_version = 'oper'
+),
+fs_14_t2_vni AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_vni'::text AS fin_source_id,
+	    'fs_14'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденный паспортами федеральных проектов на начало года (01.01.202X), млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp LEFT JOIN (
+	select rft."ProjectId", 
+  rft."Value2026"/1000 as "value", 
+  rbc.code as npfp_code
+from eb.rpp_fs_tpbfs_18 rft
+left join eb.rpp_bc_18 rbc on rbc."ProjectId" = rft."ProjectId" and rft.actuality_date = rbc.actuality_date
+where rft.actuality_date IN ('2026-01-01')
+AND ("fin_source_code" IN ('40')) and rbc.code ~ '^[А-Я Y]') rft on npfp.npfp_code = rft.npfp_code	
+	  WHERE actuality_date = '2026-01-01'
+	  	AND npfp.npfp_code NOT LIKE '%\_%'
+	  	AND npfp.npfp_parent_code is null
+	  	and npfp.id_data_version = 'oper'
+),
+fs_5_t1_vni AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_vni'::text AS fin_source_id,
+	    'fs_5'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденный паспортами федеральных проектов, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					rft."ProjectId",
+					rft."Value2026" / 1000 AS "value",
+					rbc.npfp_code
+				FROM
+					eb.rpp_fs_tpbfs_18 AS rft
+						JOIN (
+							SELECT
+								"ProjectId",
+								actuality_date,
+								code AS npfp_code
+							FROM eb.rpp_bc_18 AS bc, act_date AS ad
+							WHERE
+								code ~ '^[А-ЯY]'
+								AND actuality_date = ad.actuality_date_2
+						) AS rbc USING("ProjectId", actuality_date),
+					act_date AS ad
+				WHERE
+					rft.actuality_date = ad.actuality_date_2
+					AND "fin_source_code" IN ('40')
+			) AS rft USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code notnull
+		and npfp.id_data_version = 'oper'
+),
+fs_5_t2_vni AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_vni'::text AS fin_source_id,
+	    'fs_5'::text AS fact_code,
+	    'Объем расходов федерального бюджета, утвержденный паспортами федеральных проектов, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				SELECT
+					rft."ProjectId",
+					rft."Value2026" / 1000 AS "value",
+					rbc.npfp_code
+				FROM
+					eb.rpp_fs_tpbfs_18 AS rft
+						JOIN (
+							SELECT
+								"ProjectId",
+								actuality_date,
+								code AS npfp_code
+							FROM eb.rpp_bc_18 AS bc, act_date AS ad
+							WHERE
+								code ~ '^[А-ЯY]'
+								AND actuality_date = ad.actuality_date_2
+						) AS rbc USING("ProjectId", actuality_date),
+					act_date AS ad
+					WHERE
+						rft.actuality_date = ad.actuality_date_2
+						AND "fin_source_code" IN ('40')
+			) AS rft USING(npfp_code),
+		act_date AS ad
+	WHERE
+		actuality_date = ad.actuality_date_1
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code is null
+		and npfp.id_data_version = 'oper'
+),
+fs_17_vni AS (
+	SELECT
+		fs_5.npfp_code,
+		'fs_vni'::text AS fin_source_id,
+		'fs_17'::text AS fact_code,
+		'Объем изменений  расходов федерального бюджета, млн. руб.'::text AS fact_name,
+		fs_5.value - fs_14.value AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_5_t1_vni
+		UNION
+		SELECT npfp_code, "value" FROM fs_5_t2_vni
+	) AS fs_5
+	join(
+		SELECT npfp_code, "value" FROM fs_14_t1_vni
+		UNION
+		SELECT npfp_code, "value" FROM fs_14_t2_vni
+	) AS fs_14 USING(npfp_code)
+),
+fs_15_vni AS (
+	SELECT
+		fs_5.npfp_code,
+		'fs_vni'::text AS fin_source_id,
+		'fs_15'::text AS fact_code,
+		'% изменений расходов федерального бюджета, %'::text AS fact_name,
+		CASE 
+  			WHEN fs_14.value = 0 THEN NULL
+  			ELSE ((fs_5.value / fs_14.value) * 100) - 100
+		END AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_5_t1_vni
+		UNION
+		SELECT npfp_code, "value" FROM fs_5_t2_vni
+	) AS fs_5
+	join(
+		SELECT npfp_code, "value" FROM fs_14_t1_vni
+		UNION
+		SELECT npfp_code, "value" FROM fs_14_t2_vni
+	) AS fs_14 USING(npfp_code)
+),
+fs_16_t1_vni AS (
+	SELECT DISTINCT
+	    npfp.npfp_code,
+	    'fs_vni'::text AS fin_source_id,
+	    'fs_16'::text AS fact_code,
+	    'Исполнено расходов, млн. руб.'::text AS fact_name,
+	    COALESCE("value", 0) AS "value"
+	FROM
+		public.nsi_npfp AS npfp
+			LEFT JOIN (
+				select 
+distinct fpr."Report_id", 
+(fpr."cash_execution_total")/1000 as "value",
+rbc.code as npfp_code,
+fpr18."Project_id"
+from eb.fpr_bt_18 fpr
+left join
+(select "Project_id", 
+"Report_id"
+from eb.fpr_18
+where actuality_date = '2026-07-16') fpr18 on fpr18."Report_id" = fpr."Report_id" 
+left join eb.rpp_bc_18 rbc on rbc."ProjectId" = fpr18."Project_id"
+where fpr.actuality_date IN ('2026-07-01') --надо менять на каждый квартал (меняется в зависимости от графика загрузки данных в СМЭВ)
+AND fpr."fin_source_code" IN ('40') and rbc.code ~ '^[А-Я Y]') v on npfp.npfp_code = v.npfp_code
+	WHERE
+		actuality_date = '2026-07-01'
+		AND npfp.npfp_code NOT LIKE '%\_%'
+		AND npfp.npfp_parent_code notnull
+		and npfp.id_data_version = 'oper'
+),
+fs_16_t2_vni AS (
+	SELECT distinct
+	LEFT(fs_16.npfp_code, 1) AS npfp_code,
+	    'fs_vni'::text AS fin_source_id,
+	    'fs_16'::text AS fact_code,
+	    'Исполнено расходов, млн. руб.'::text AS fact_name,
+	    sum(fs_16."value") AS "value"
+	from (SELECT npfp_code, "value" FROM fs_16_t1_vni) as fs_16	
+	group by LEFT(fs_16.npfp_code, 1)
+),
+fs_18_vni AS (
+	SELECT
+		fs_5.npfp_code,
+		'fs_vni'::text AS fin_source_id,
+		'fs_18'::text AS fact_code,
+		'Исполнение расходов к объему расходов федерального бюджета, утвержденный паспортами федеральных проектов, %'::text AS fact_name,
+		CASE 
+  			WHEN fs_5.value = 0 THEN NULL
+  			ELSE ((fs_16.value / fs_5.value) * 100)
+		END AS "value"
+	FROM (
+		SELECT npfp_code, "value" FROM fs_5_t1_vni
+		UNION
+		SELECT npfp_code, "value" FROM fs_5_t2_vni
+	) AS fs_5
+	join(
+		SELECT npfp_code, "value" FROM fs_16_t1_vni
+		UNION
+		SELECT npfp_code, "value" FROM fs_16_t2_vni
+	) AS fs_16 USING(npfp_code)
+)
+SELECT DISTINCT
+  md5(
+    ad.actuality_date_1::text
+    ||3::int2::text
+    ||COALESCE(npfp_code, '')
+    ||fin_source_id
+    ||fact_code
+    ||fact_name
+    ||COALESCE(value::TEXT, '')
+  ) AS "hash",
+  now() AS "mart_du",
+  ad.actuality_date_1 AS actuality_date,
+  ad.actuality_date_1 AS calendar_start_date,
+  3::int2 AS calendar_lvl,
+  npfp_code,
+  fin_source_id,
+  fact_code,
+  fact_name,
+  value
+FROM (
+	SELECT * FROM fs_1_t1
+	UNION
+	SELECT * FROM fs_1_t2
+	UNION
+	SELECT * FROM fs_2_t1
+	UNION
+	SELECT * FROM fs_2_t2
+	UNION
+	SELECT * FROM fs_3
+	UNION
+	SELECT * FROM fs_4
+	UNION
+	SELECT * FROM fs_5_t1
+	UNION
+	SELECT * FROM fs_5_t2
+	UNION
+	SELECT * FROM fs_6
+	union
+	SELECT * FROM fs_7_t1
+	--union
+	--SELECT * FROM fs_7_t2
+	union
+	SELECT * FROM fs_8_t1
+	UNION
+	SELECT * FROM fs_8_t2
+	UNION
+	SELECT * FROM fs_9
+	UNION
+	SELECT * FROM fs_1_t1_mbt
+	UNION
+	SELECT * FROM fs_1_t2_mbt
+	UNION
+	SELECT * FROM fs_2_t1_mbt
+	UNION
+	SELECT * FROM fs_2_t2_mbt
+	UNION
+	SELECT * FROM fs_3_mbt
+	UNION
+	SELECT * FROM fs_4_mbt
+	UNION
+	SELECT * FROM fs_8_t1_mbt
+	UNION
+	SELECT * FROM fs_8_t2_mbt
+	UNION
+	SELECT * FROM fs_9_mbt
+	UNION
+	SELECT * FROM fs_14_t1_vni
+	UNION
+	SELECT * FROM fs_14_t2_vni
+	union
+	SELECT * FROM fs_5_t1_vni
+	UNION
+	SELECT * FROM fs_5_t2_vni
+	UNION
+	SELECT * FROM fs_17_vni
+	UNION
+	SELECT * FROM fs_15_vni
+	union
+	SELECT * FROM fs_16_t1_vni
+	UNION
+	SELECT * FROM fs_16_t2_vni
+	UNION
+	SELECT * from fs_18_vni
+) AS fin, act_date AS ad;
+
+
+
+
